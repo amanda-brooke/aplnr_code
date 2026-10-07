@@ -1,0 +1,22 @@
+# Python environment used for the analyses.
+# Versions given where they were recorded; others: the versions current at the time of analysis (2026).
+# Preprocessing (01_preprocessing/2D_gastruloid_analysis_*.ipynb): Python 3.12
+# Downstream analyses and figures: Python 3.11
+scanpy==1.12.2
+anndata==0.13.2
+scvi-tools==1.5.0.post1
+numpy
+pandas
+scipy
+scikit-learn
+h5py
+matplotlib
+seaborn
+magic-impute        # MAGIC (APLNR/APELA imputation, visualisation only)
+pydeseq2            # pseudobulk differential expression
+PyWGCNA             # co-expression modules (Figure 2)
+gseapy              # GSEA / enrichment
+networkx
+pycirclize
+openpyxl            # source-data workbooks
+# R (for 02_analysis/APLNR_module_preservation_FIXED.R): WGCNA

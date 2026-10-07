@@ -1,0 +1,185 @@
+# analysis.yml — per-dataset analysis parameters (the EXCLUSIONS live here, once).
+# Loaded by pipeline_v2/dataconfig.py. Notebooks inherit these; can override in-notebook
+# for exploration. This is the single auditable source of "what we excluded and why".
+#
+# Fields:
+#   radial_file       : file in data/ (the *_radial_edges.pkl)
+#   units             : "um" (distance from edge in microns) or "fraction_radius"
+#   reference_window  : [t0, t1] hours — window the mu+1.5sigma boundary is fit from
+#   sigma_k           : boundary multiplier (mu + k*sigma); default 1.5
+#   exclude_offsets   : substrings of File_ID to drop (e.g. odd sizes / bad interval)
+#   size_filter       : {column: [allowed values]}  or null
+#   group_col         : column with condition labels, or null (single group)
+#   min_gastruloids   : keep only time windows with >= this many gastruloids/group
+#   notes             : free text — WHY these choices
+#
+# Master-build label fields (used by build_master.py; see MASTER_SCHEMA.md §1):
+#   experiment        : partition key (parent / sox2 / shaplnr / ...)
+#   cell_type         : mesoderm / ectoderm
+#   geometry          : fixed value (circle / sliver) OR
+#   geometry_from_substring : {substr: value, default: value}  (derive from File_ID)
+#   condition         : fixed value  OR  condition_from: <column>  OR
+#   condition_from_substring: {substr: value, default: value}
+#   z_stack           : true/false
+
+shaplnr_mps:
+  radial_file: shaplnr_mps_radial_edges.pkl
+  experiment: shaplnr
+  cell_type: mesoderm
+  geometry: circle
+  condition_from: Group          # Control / Treatment(=shAPLNR)
+  z_stack: false
+  units: um
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  reference_group: Control       # fit the PS-like boundary on CONTROL only (the reference arm)
+  exclude_offsets: []          # CONFIRMED (Amanda): no exclusions — Gaussian handles all 20
+  size_filter: null            # constant 700 um -> um is fine
+  group_col: Group             # Control vs Treatment(=shAPLNR)
+  min_gastruloids: 10
+  notes: "KD vs Control. Boundary ~110 um (mu+1.5sigma). No exclusions."
+
+tneon_parent_circles:
+  radial_file: tneon_parent_circles_radial_edges.pkl
+  experiment: parent
+  cell_type: mesoderm
+  geometry: circle
+  condition: WT
+  z_stack: false
+  units: um                    # 575 & 700 only, ~1.2x apart -> um ~= normalized (tested)
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  exclude_offsets: [offset_27, offset_28, k2_c2]   # ALL GLOBAL (excluded everywhere):
+                                                   #   offset_27 = odd sizes (527/373/360)
+                                                   #   offset_28 = 20-min interval (biases rate metrics)
+                                                   #   k2_c2     = was penetration-only; now global (Amanda: exclude everywhere)
+  size_filter:
+    diameter_um: [575.0, 700.0]
+  group_col: null              # all WT
+  min_gastruloids: 8
+  notes: "Parent/WT (Fig 1), 11 gastruloids. Boundary ~146 um. Do NOT cross-compare absolute % with Fig 3 (diff cell line/core)."
+
+# --- stubs to fill in when you get to them ---
+shaplnr_mps_zstack:
+  radial_file: shaplnr_mps_zstack_radial_edges.pkl
+  experiment: shaplnr
+  cell_type: mesoderm
+  geometry: circle
+  condition_from: Group
+  z_stack: true
+  units: um
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  boundary_from: shaplnr_mps    # inherit the KD boundary (Control-based); do NOT refit on z data
+  exclude_offsets: []
+  size_filter: null
+  group_col: Group
+  min_gastruloids: 5
+  notes: "Z-plane re-track of a subset. Boundary inherited from shaplnr_mps (planes differ in depth -> no refit)."
+
+tneon_parent_circles_zstack:
+  radial_file: tneon_parent_circles_zstacks_radial_edges.pkl
+  experiment: parent
+  cell_type: mesoderm
+  geometry: circle
+  condition: WT
+  z_stack: true
+  units: um
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  boundary_from: tneon_parent_circles   # inherit the Fig 1 parent boundary; do NOT refit on z data
+  exclude_offsets: []
+  size_filter: null
+  group_col: null
+  min_gastruloids: 3
+  notes: "Parent z-plane re-track (Fig 1 z panels). Boundary inherited from tneon_parent_circles (planes differ in depth -> no refit)."
+
+tneon_parent_circles_zstack_2:
+  radial_file: tneon_parent_circles_zstacks_2_radial_edges.pkl
+  experiment: parent
+  cell_type: mesoderm
+  geometry: circle
+  condition: WT
+  z_stack: true
+  units: um
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  boundary_from: tneon_parent_circles   # inherit the Fig 1 parent boundary; do NOT refit on z data
+  exclude_offsets: []
+  size_filter: null
+  group_col: null
+  min_gastruloids: 2          # TODO: set to actual gastruloid count for this 2-plane set
+  notes: "Parent 2-plane z-stack (glassbottom vs upper). z_plane -> Basal / Upper. Boundary inherited from tneon_parent_circles."
+
+sox2_live:
+  radial_file: sox2_live_radial_edges.pkl
+  experiment: sox2
+  cell_type: ectoderm
+  geometry_from_substring: {sliver: sliver, default: circle}
+  condition_from_substring: {noBMP: noBMP, default: BMP}
+  z_stack: false
+  units: fraction_radius       # sizes vary 370-741 um -> normalize
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  exclude_offsets: [noBMP, sliver]   # ALL GLOBAL. noBMP = no primitive streak (no BMP4).
+                                     # sliver = the lone sox2 sliver = sox2_live_c8_sliver_offset_25.5,
+                                     #          which is ALSO the 370um outlier -> excluded everywhere (Amanda).
+  size_filter: null            # no separate circle outlier; remaining circles are 639-740um
+  group_col: null
+  min_gastruloids: 4
+  notes: "WT ectoderm. 8 files; drop 3 noBMP + 1 sliver(=370um outlier) -> 4 circles. NOTE: the sox2 sliver is excluded (tiny outlier); parent sliver is KEPT as geometry='sliver'."
+
+tneon_parent_circles_sliver:
+  radial_file: tneon_parent_circles_sliver_radial_edges.pkl
+  experiment: parent
+  cell_type: mesoderm
+  geometry: sliver
+  condition: WT
+  z_stack: false
+  units: fraction_radius
+  reference_window: [42, 48]
+  sigma_k: 1.5
+  exclude_offsets: []
+  size_filter: null
+  group_col: null
+  min_gastruloids: 5
+  notes: "Sliver (trajectory-focused). TODO: confirm."
+
+# =============================================================================
+# RESERVED SLOTS — set aside for now. To wire one: uncomment, confirm the label
+# fields against the actual File_IDs, then `python build_master.py <name>`.
+# Nothing else rebuilds; it just appears as a new partition. (See MASTER_SCHEMA.md §1.)
+# =============================================================================
+
+# rac1_mps:
+#   radial_file: rac1_mps_radial_edges.pkl
+#   units: um                      # TODO confirm
+#   reference_window: [42, 48]
+#   sigma_k: 1.5
+#   exclude_offsets: []
+#   size_filter: null
+#   group_col: Group               # TODO confirm Control/Treatment split
+#   min_gastruloids: 5
+#   notes: "Rac1 KD. TODO: confirm label mapping from File_IDs before wiring."
+
+# parent_triangles_donuts:
+#   radial_file: parent_triangles_donuts_radial_edges.pkl
+#   units: fraction_radius         # TODO confirm (non-circular geometry -> normalize)
+#   reference_window: [42, 48]
+#   sigma_k: 1.5
+#   exclude_offsets: []
+#   size_filter: null
+#   group_col: null
+#   min_gastruloids: 5
+#   notes: "Non-circular shapes. geometry (triangle/donut) likely a File_ID substring split. TODO confirm."
+
+# mim_tbxt_sox2:
+#   radial_file: mim_tbxt_sox2_radial_edges.pkl
+#   units: fraction_radius         # TODO confirm
+#   reference_window: [42, 48]
+#   sigma_k: 1.5
+#   exclude_offsets: []
+#   size_filter: null
+#   group_col: null
+#   min_gastruloids: 5
+#   notes: "MIM dual-marker (tbxt/sox2). TODO: confirm marker split before wiring."

@@ -1,0 +1,7 @@
+*.pkl
+data/processed/
+results/
+output/
+__pycache__/
+*.pyc
+.DS_Store

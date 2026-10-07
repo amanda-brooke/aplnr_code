@@ -1,0 +1,17 @@
+# Pipeline dependencies
+pandas
+numpy
+scipy
+networkx
+pyyaml
+
+# Plotting
+matplotlib
+seaborn
+
+# Notebooks only (exploratory work)
+scikit-learn
+jupyter
+
+# Versions are intentionally unpinned. To freeze the exact versions you
+# currently use for reproducibility, run:  pip freeze > requirements.txt

@@ -1,0 +1,90 @@
+datasets:
+  sox2_live:
+    data_root: "Y:/Amanda/SOX2 Live"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  mim_tbxt_sox2:
+    data_root: "V:/Amanda/MIM Live TBXT and SOX2"
+    layout: "flat"
+    radial: false
+    group_label: "WT"
+
+  shaplnr_mps:
+    data_root: "V:/Amanda/Processed shAPLNR MPs"
+    layout: "tc"
+    radial: true
+    group_label: "WT"   # ignored for tc
+
+  shaplnr_mps_zstack:
+    data_root: "V:/Amanda/Processed shAPLNR MPs/z_stacks"
+    layout: "tc"
+    radial: true
+    group_label: "WT"   # ignored for tc
+
+  tneon_parent_circles:
+    data_root: "V:/Amanda/Tneon Parent Circles"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  tneon_parent_circles_zstacks:
+    data_root: "V:/Amanda/Tneon Parent Circles/zdata"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  tneon_parent_circles_zstacks_2:
+    data_root: "V:/Amanda/Tneon Parent Circles/zdata_only2"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  tneon_parent_circles_1to10:
+    data_root: "V:/Amanda/Tneon Parent Circles/1to10"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  tneon_parent_circles_1to10_new:
+    data_root: "V:/Amanda/Tneon Parent Circles/1to10_new"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  tneon_parent_circles_sliver:
+    data_root: "V:/Amanda/Tneon Parent Circles/sliver"
+    layout: "flat"
+    radial: true
+    group_label: "WT"
+
+  parent_triangles_donuts:
+    data_root: "Y:/Amanda/Triangles and Donuts"
+    layout: "flat"
+    radial: false
+    group_label: "WT"
+
+  rac1_mps: #this is mps with NSC inhibitor
+    data_root: "Y:/Amanda/NSC Live Imaging/Tracking"
+    layout: "tc"
+    radial: true
+    group_label: "WT"   # ignored for tc
+
+  fermt2_mps:
+    data_root: "V:/Amanda/fermt2_live"
+    layout: "tc"
+    radial: true
+    group_label: "WT"   # ignored for tc
+
+  rac1_mps_t17n:
+    data_root: "Y:/Amanda/RAC1 T17N_ORF/Patterns_ORF_T17N"
+    layout: "tc"
+    radial: true
+    group_label: "WT"   # ignored for tc
+
+  rac1_mim_t17n:
+    data_root: "Y:/Amanda/RAC1 T17N_ORF/ORF_T17N_BMP_MIM_Lysed/tracking"
+    layout: "tc"
+    radial: false
+    group_label: "WT"   # ignored for tc

@@ -1,0 +1,27 @@
+# --- Raw data & large intermediates (never commit) ---
+*.fastq
+*.fastq.gz
+*.bam
+*.h5
+*.rds
+*.idx
+FastX/
+
+# --- Reference files (download separately; some are license-restricted, e.g. MSigDB) ---
+reference/
+
+# --- Derived results (regenerate with the pipeline) ---
+results/
+scripts/results/
+
+# --- Stray outputs from the original analysis ---
+figures/
+FIGURE_MANIFEST.csv
+DESeq2_dispersion_R1_R2_R3.png
+_trash/
+
+# --- OS / editor junk ---
+.DS_Store
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
