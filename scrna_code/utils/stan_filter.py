@@ -196,7 +196,7 @@ def qc_pipeline(data_path: str | Path) -> AnnData:
 
     for ll, (lo, hi) in LIBRARY_SIZE_GATE.items():
         print(f"Before lib filt {ll}: {data_list[ll].shape}")
-        filter_adata_lib(data_list[ll], (lo, hi))
+        data_list[ll] = filter_adata_lib(data_list[ll], (lo, hi))
         print(f"After lib filt {ll}: {data_list[ll].shape}")
 
 
