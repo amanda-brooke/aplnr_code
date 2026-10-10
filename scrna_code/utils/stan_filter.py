@@ -1,29 +1,16 @@
 """
-stan_filter.py -- ONE definition of Stan's barcode filter, imported everywhere.
+Helper functions for scRNAseq data preprocessing.
 
-WHY THIS EXISTS
-The filter was applied in FIGURE2_CLEAN.ipynb, FIGURE2_SPATIAL.ipynb,
-FIGURE_KD_FIGURE.ipynb and FIGURE_KD_CLEAN.ipynb -- and NOT in maturation_kd.ipynb,
-kd_pseudobulk.py, chat_scores_maturation.py or kd_aplnr_correlation.py. So the figure
-panels were drawn on 29,419 cells while every pseudobulk, score and correlation was
-computed on 45,435. That is a 35% difference in the cell set between panels of the
-same figure, and it is what made KD_pseudobulk_QC.csv report 53 NasM cells for
-Chicago_Ctrl_72h while 2_composition.csv reported 36.
+Imported in:
+- 02_analysis/kd_pseudobulk.py
+- 02_analysis/kd_aplnr_correlation.py
+- 02_analysis/run_pseudobulk_ALL.py
+- 02_analysis/export_control_expression.py
+- 04_supplement/qc_supplement.py
+- 04_supplement/ih_validation.py
+- 04_supplement/supp_figures.py
 
-Same `predicted_leiden_sub_joint` labels in both. The discrepancy was ONLY the filter.
-
-WHAT IT DOES
-`sample_barcodes.csv` (29,519 rows) is matched against `obs_names` by pulling the first
-run of >=14 ACGT characters out of each. Cells whose barcode is not in that set are
-dropped. Retention is 64.7% overall and varies by group (50.6% to 71.9%), so this is
-NOT a uniform thinning -- it changes group sizes unevenly and must be applied before
-any per-group statistic, not after.
-
-MIN_CELLS_PER_SAMPLE CONSEQUENCE
-Filtering takes Chicago_Ctrl_72h NasM from 53 cells to 36, below the old floor of 50.
-The floor is therefore 35, which keeps all four 72h NasM pseudobulks and preserves the
-paired 2x2 design with 1 residual df. Do not raise it above 35 without re-checking
-KD_pseudobulk_QC.csv -- at 40 the NasM fit loses Chicago and becomes unfittable.
+- sample_barcodes.csv includes cells passed qc_pipeline
 
 USAGE
     from stan_filter import stan_mask
@@ -33,6 +20,7 @@ USAGE
 import re
 import numpy as np
 import pandas as pd
+from anndata import AnnData
 from pathlib import Path
 
 BARCODE_RE = re.compile(r"[ACGT]{14,}")
@@ -98,41 +86,8 @@ def read_obs_names(h5_path):
         raw = it["values"][:] if isinstance(it, h5py.Group) else it[:]
     return np.array([x.decode() if isinstance(x, bytes) else str(x) for x in raw])
 
-# =============================================================================
-# WHAT THE FILTER ACTUALLY IS  -- resolved 2026-08-09
-# =============================================================================
-# Until now this module treated `sample_barcodes.csv` as an opaque list. It is not.
-# Stan confirmed by email that he applied ONLY a per-sample library-size gate, with
-# the windows in LIBRARY_SIZE_GATE below, to the RAW (pre-QC) object.
-#
-# VERIFIED: applying those windows to 00_DATA_FROZEN/00_raw/amanda_liang_raw_unfiltered.h5ad
-# reproduces his barcode list EXACTLY -- 29,519 of 29,519 cells, zero mismatches, all
-# eight samples. See 05_notebooks/qc_supplement/.
-#
-# Two consequences worth knowing:
-#
-# 1. THE GATE IS THE PRIMARY DEFINITION. The CSV is now a verification artefact, not
-#    a dependency. `library_size_gate()` needs no external file.
-#
-# 2. `stan_mask()` MATCHES ON BARCODE SEQUENCE ALONE, IGNORING THE SAMPLE. 154 barcodes
-#    occur in more than one of the eight samples, so stan_mask keeps 72 cells on the
-#    strength of a barcode belonging to a DIFFERENT sample:
-#         stan_mask()          29,419 cells
-#         library_size_gate()  29,347 cells
-#    The difference is 0.24% and does not move the results -- lNasM 72h is 521 cells
-#    either way, eNasM 72h goes 1,695 -> 1,689.
-#
-#    Every frozen output in 01_DERIVED_LOCKED and every current figure was built with
-#    stan_mask(). It is therefore LEFT UNCHANGED so those stay reproducible. Use
-#    library_size_gate() for anything new, and see verify_gate_matches_list().
-#
-# The gate is ASYMMETRIC between arms of the same comparison -- Michigan 72h is
-# Ctrl 5,000-30,000 against KD 4,000-20,000, giving controls 1.67x the median depth.
-# Depth-standardised composition is in the QC supplement; lNasM, pluripotent, pPS-LC
-# and AE-LC all hold or strengthen, eNasM retains 58% of its effect.
-# =============================================================================
 
-# (min, max) total_counts, inclusive. Keys are the CORRECTED sample labels.
+# Library size gates, raw counts, inclusive on both sides
 LIBRARY_SIZE_GATE = {
     "Chicago_Ctrl_48h":  (15_000, 35_000),
     "Chicago_DOX_48h":   (10_000, 35_000),
@@ -144,26 +99,162 @@ LIBRARY_SIZE_GATE = {
     "Michigan_DOX_72h":  ( 4_000, 20_000),
 }
 
+def library_size_gate(sample_id: np.ndarray | list, total_counts: np.ndarray | list):
+    """Library size filter (based on LIBRARY_SIZE_GATE)
 
-def library_size_gate(sample_id, total_counts):
-    """Stan's filter, computed rather than looked up. No external file needed.
+    Parameters
+    ----------
+    sample_id : np.ndarray | list
+        Sample labels (e.g. "Michigan_Ctrl_72h")
+    total_counts : np.ndarray | list
+        UMIs per cell
 
-    sample_id     corrected labels, e.g. "Michigan_Ctrl_72h"
-    total_counts  UMIs per cell
-
-    Returns a boolean array. On the QC-passed master object this keeps 29,347 cells.
+    Returns
+    -------
+    A boolean array to keep cells within the library size bounds
     """
     sample_id = np.asarray(sample_id, dtype=object)
     total_counts = np.asarray(total_counts, dtype=float)
     unknown = sorted(set(sample_id) - set(LIBRARY_SIZE_GATE))
     if unknown:
-        raise KeyError(f"no library-size gate defined for {unknown}. Keys must be the "
-                       f"CORRECTED sample labels -- note Ctrl_72h and DOX_48h were "
-                       f"exchanged at both sites by the OCM correction.")
+        raise KeyError(f"No library-size gate defined for {unknown}",
+                       f"Valid sample ids: {list(LIBRARY_SIZE_GATE.keys())}")
     lo = np.array([LIBRARY_SIZE_GATE[s][0] for s in sample_id], float)
     hi = np.array([LIBRARY_SIZE_GATE[s][1] for s in sample_id], float)
     return (total_counts >= lo) & (total_counts <= hi)
 
+def qc_pipeline(data_path: str | Path) -> AnnData:
+    from pathlib import Path
+    import scanpy as sc
+    """FUll QC pipeline starting from the cellranger outputs.
+    Author: Zhiyuan Yu
+    ./sample_barcodes.csv includes cells thare are included from this pipeline
+
+    Parameters
+    ----------
+    data_path: str | Path
+        path to folder with cellranger output
+        liang_amanda_data_raw
+        ├── chicago
+        │   ├── chicago-sample1-raw
+        │   │   ├── barcodes.tsv.gz
+        │   │   ├── features.tsv.gz
+        │   │   └── matrix.mtx.gz
+        │   ├── chicago-sample2-raw
+        │   │   ├── ...
+        │   ├── chicago-sample3-raw
+        │   │   ├── ...
+        │   └── chicago-sample4-raw
+        │       └── ...
+        └── michigan
+            ├── michigan-sample1-raw
+            │   ├── ...
+            ├── michigan-sample2-raw
+            │   ├── ...
+            ├── michigan-sample3-raw
+            │   ├── ...
+            └── michigan-sample4-raw
+                └── ...
+    """
+
+    """
+    =============== data import ================
+    - Load cellranger mtx output
+    - Index each cell with label_barcode
+        e.g. AAACCCTGTAATCGCT-1_Chicago_Ctrl_48h
+    ============================================
+    """
+    data_path = Path(data_path)
+    condition_map = {
+        "chicago-sample1-raw": "Chicago_Ctrl_48h",
+        "chicago-sample2-raw": "Chicago_DOX_48h",
+        "chicago-sample3-raw": "Chicago_Ctrl_72h",
+        "chicago-sample4-raw": "Chicago_DOX_72h",
+        "michigan-sample1-raw": "Michigan_Ctrl_48h",
+        "michigan-sample2-raw": "Michigan_DOX_48h",
+        "michigan-sample3-raw": "Michigan_Ctrl_72h",
+        "michigan-sample4-raw": "Michigan_DOX_72h",
+    }
+    data_list = {}
+    for ss, ll in condition_map.items():
+        sample_source = ss.split("-")[0]
+        data_list[ll] = sc.read_10x_mtx(data_path / sample_source / ss)
+        print(data_list[ll].shape)
+        data_list[ll].obs.index = data_list[ll].obs.index.str.cat(
+            [ll] * data_list[ll].shape[0], sep="_"
+        )
+
+    """
+    ============ Library filter =============
+    - Keep cells with total UMIs in [lo, hi]
+    =========================================
+    """
+    def filter_adata_lib(adata: AnnData, thresholds: tuple):
+        lib_size = np.array(adata.X.sum(axis=1)).squeeze()
+        include_idx = np.logical_and(lib_size >= thresholds[0], lib_size <= thresholds[1])
+        return adata[include_idx, :].copy()
+
+    for ll, (lo, hi) in LIBRARY_SIZE_GATE.items():
+        print(f"Before lib filt {ll}: {data_list[ll].shape}")
+        data_list[ll] = filter_adata_lib(data_list[ll], (lo, hi))
+        print(f"After lib filt {ll}: {data_list[ll].shape}")
+
+
+
+    """
+    ============ Filter lowly expressed genes =============
+    - anndata to pandas dataframe as scprep expects that
+    - Genes expressed in fewer than 10 cells are dropped
+    =======================================================
+    """
+    import scprep
+    def adata_to_df(adata):
+        var_names = adata.var_names.str.cat([f" ({g})" for g in adata.var["gene_ids"]])
+        df = adata.to_df()
+        df.columns = var_names
+        return df
+    for ll, dat in data_list.items():
+        dat = adata_to_df(dat)
+        data_list[ll] = scprep.filter.filter_rare_genes(dat, min_cells=10)
+
+    """
+    ============== Filter cells with high MT ===============
+    - Compute UMI fraction of mitochondrial genes per cell
+    - Drop cells with MT fraction > 20%
+    ========================================================
+    """
+    def get_total_mt_fraction(data_frame: pd.DataFrame, mt_list: list[str]):
+        mt_list = [g for g in mt_list if g in data_frame.columns]
+        mt_expr = data_frame.loc[:, mt_list].sum(axis=1)
+        total_expr = data_frame.sum(axis=1)
+        return mt_expr / total_expr
+
+    # This explicitly matches mito genes start with MT- (e.g. MT-CO1)
+    # Genes such as MT1A (Metallothionein 1A) wont be matched
+    # Since gene filtering was done in the previous step,
+    # here the intersection of MT genes across samples is used
+    mt_genes = list(
+        set.intersection(
+            *[
+                set(s)
+                for s in [
+                    [g for g in dat.columns if g.startswith("MT-")]
+                    for dat in data_list.values()
+                ]
+            ]
+        )
+    )
+    for ll, dat in data_list.items():
+        mt_expr = get_total_mt_fraction(dat, mt_genes)
+        data_list[ll] = dat[mt_expr <= 0.2]
+
+    # Generate a single anndata
+    adata_list = []
+    for ll, dat in data_list.items():
+        adata = AnnData(dat)
+        adata.obs["sample_labels"] = ll
+        adata_list.append(adata)
+    return sc.concat(adata_list, join="outer")
 
 def verify_gate_matches_list(sample_id, total_counts, obs_names, root):
     """Prove the gate and the supplied barcode list agree. Returns a dict."""
