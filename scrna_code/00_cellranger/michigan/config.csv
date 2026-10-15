@@ -1,0 +1,14 @@
+[gene-expression]
+ref,/nfs/turbo/umms-iheemske/reference-genomes/human/GRCh38/pre-built/cellranger/refdata-gex-GRCh38-2024-A
+create-bam,false
+
+[libraries]
+fastq_id,fastqs,feature_types
+Michigan-SI_TT_A2_237W2VLT3,/scratch/iheemske_root/iheemske0/zyyu/scRNAseq-meso/raw_demultiplexed/scRNAseq/01.RawData/Michigan,Gene Expression
+
+[samples]
+sample_id,ocm_barcode_ids
+sample1,OB1
+sample2,OB2
+sample3,OB3
+sample4,OB4
