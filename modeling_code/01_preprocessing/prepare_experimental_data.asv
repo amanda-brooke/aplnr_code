@@ -1,0 +1,128 @@
+function paths = prepare_experimental_data(project, varargin)
+
+    p = inputParser;
+    addRequired(p, 'project', @isstruct);
+    addParameter(p, 'Recompute', false, @(x) islogical(x) || isscalar(x));
+    parse(p, project, varargin{:});
+    analysis = analysis_settings();
+    edgeRadius = model_parameters('control').domainRadius;
+    conditions = {'control', 'treatment'};
+    stems = {{'ctrl_1', 'ctrl_2', 'ctrl_3', 'ctrl_4'}, {'dox_1', 'dox_2', 'dox_3', 'dox_4'}};
+    paths = struct();
+    for i = 1:numel(conditions)
+        expected = fullfile(project.preparedDataRoot, conditions{i}, 'target_features', 'experimental_target_features.mat');
+        if logical(p.Results.Recompute) || ~isfile(expected)
+            summaries = cell(numel(stems{i}), 1);
+            for j = 1:numel(stems{i})
+                fprintf('Preparing offset_24/%s/%s\n', conditions{i}, stems{i}{j});
+                summaries{j} = local_prepare_replicate( project.rawDataRoot, conditions{i}, stems{i}{j}, analysis, edgeRadius);
+            end
+            replicateSummaries = vertcat(summaries{:});
+            if ~isfolder(fileparts(expected)), mkdir(fileparts(expected)); end
+            save(expected, 'replicateSummaries', '-v7.3');
+        end
+        paths.(conditions{i}) = expected;
+    end
+end
+
+function summary = local_prepare_replicate(dataRoot, condition, stem, analysis, edgeRadius)
+    files = resolve_dataset_files('offset_24', condition, 'DataRoot', dataRoot, 'FileStem', stem);
+    edgeTable = read_data_table(files.edgeFile);
+    spotTable = read_data_table(files.spotFile);
+    [xPaths, yPaths, tPathsSeconds] = build_nonbranching_track_segments( edgeTable, spotTable, 'MinimumFrames', analysis.minimumFramesPerTrackSegment);
+    valid = ~cellfun(@isempty, xPaths) & ~cellfun(@isempty, yPaths) & ~cellfun(@isempty, tPathsSeconds);
+    xPaths = xPaths(valid); yPaths = yPaths(valid); tPathsSeconds = tPathsSeconds(valid);
+
+    [centerX, centerY, radius] = local_estimate_geometry({double(spotTable.POSITION_X(:))}, {double(spotTable.POSITION_Y(:))});
+    geometry = struct('method', 'fixed_circle', 'centerX', centerX, 'centerY', centerY, 'radius', edgeRadius, 'edgeRadius', edgeRadius, 'measuredRadius', radius, 'edgeRadiusSource', 'override');
+
+    timeOffsetHours = analysis.experimentStartHour;
+    tPathsHours = cellfun(@(t) t ./ 3600 + timeOffsetHours, tPathsSeconds, 'UniformOutput', false);
+    tMin = min(cellfun(@local_finite_min, tPathsHours));
+    tMax = max(cellfun(@local_finite_max, tPathsHours));
+    if ~isfinite(tMin) || ~isfinite(tMax) || tMin == tMax, tMin = 0; tMax = 1; end
+    rEdges = linspace(0, edgeRadius, analysis.radialBinCount + 1);
+    tGrid = linspace(tMin, tMax, analysis.densityTimePointCount);
+
+    spotTimeHours = double(spotTable.POSITION_T(:)) ./ 3600 + timeOffsetHours;
+    spotRadius = hypot(double(spotTable.POSITION_X(:)) - centerX, double(spotTable.POSITION_Y(:)) - centerY);
+    density = compute_radial_density_spots_timecourse( spotRadius, spotTimeHours, rEdges, tGrid, 'DensityMode', 'area', 'MinimumBinCount', analysis.minimumCellsPerFrameBin);
+    radialVelocity = compute_segment_velocity_maps( xPaths, yPaths, tPathsSeconds, geometry, 'TimeOffsetHours', timeOffsetHours, 'DistanceEdges', rEdges, 'TimeEdgesHours', linspace(analysis.timeWindowHours(1), analysis.timeWindowHours(2), analysis.radialBinCount + 1), 'MinimumCount', analysis.minimumCellsPerFrameBin, 'SpeedQuantity', 'radial_speed');
+
+    settings = struct('nR', analysis.radialBinCount, 'nT', analysis.densityTimePointCount, 'rMax', edgeRadius, 'densityMode', 'area', 'timeOffsetHours', timeOffsetHours, 'densityConvention', 'all_unique_spots_with_minimum_bin_occupancy', 'kinematicConvention', 'nonbranching_segments_split_at_divisions', 'kinematicMinimumFrames', analysis.minimumFramesPerTrackSegment, 'geometryConvention', 'fixed_circle', 'edgeRadiusOverride', edgeRadius, 'densityMinimumBinCount', analysis.minimumCellsPerFrameBin, 'velocityMinimumBinCount', analysis.minimumCellsPerFrameBin, 'velocityMapConvention', 'segment_midpoint_radial_speed');
+    summary = struct('fileStem', stem, 'files', files, 'density', density, 'radialVelocity', radialVelocity, 'geometry', geometry, 'settings', settings);
+end
+
+function [centerX, centerY, radius] = local_estimate_geometry(xPaths, yPaths)
+    allX = vertcat(xPaths{:}); allY = vertcat(yPaths{:});
+    valid = isfinite(allX) & isfinite(allY);
+    allX = allX(valid); allY = allY(valid);
+    fallbackCenter = [0.5 * (min(allX) + max(allX)), 0.5 * (min(allY) + max(allY))];
+    fallbackRadius = max([max(allX) - min(allX), max(allY) - min(allY)]) / 2;
+    [centerX, centerY, radius] = local_estimate_ring_center(allX, allY, 'FallbackCenter', fallbackCenter, 'FallbackRadius', fallbackRadius);
+end
+
+function [centerX, centerY, radius] = local_estimate_ring_center(x, y, varargin)
+    p = inputParser; p.FunctionName = mfilename;
+    addParameter(p, 'FallbackCenter', [0, 0], @(v) isnumeric(v) && numel(v) == 2 && all(isfinite(v)));
+    addParameter(p, 'FallbackRadius', 1, @(v) isnumeric(v) && isscalar(v) && isfinite(v) && v > 0);
+    parse(p, varargin{:});
+    fallbackCenter = double(p.Results.FallbackCenter);
+    fallbackRadius = double(p.Results.FallbackRadius);
+    centerX = fallbackCenter(1);
+    centerY = fallbackCenter(2);
+    radius = fallbackRadius;
+    if numel(x) < 10 || numel(y) < 10, return; end
+    [cx, cy, r] = local_circle_fit(x, y);
+    if ~local_circle_fit_is_reasonable(cx, cy, r, fallbackCenter, fallbackRadius), return; end
+    ri = hypot(x - cx, y - cy);
+    residual = abs(ri - r);
+    medResidual = median(residual, 'omitnan');
+    if isfinite(medResidual) && medResidual > 0
+        keep = residual <= max(3 * medResidual, 0.02 * r);
+        if nnz(keep) >= 10
+            [cx2, cy2, r2] = local_circle_fit(x(keep), y(keep));
+            if local_circle_fit_is_reasonable(cx2, cy2, r2, fallbackCenter, fallbackRadius)
+                cx = cx2;
+                cy = cy2;
+                r = r2;
+            end
+        end
+    end
+    centerX = cx;
+    centerY = cy;
+    radius = r;
+end
+
+function [cx, cy, r] = local_circle_fit(x, y)
+    A = [2 * x(:), 2 * y(:), ones(numel(x), 1)];
+    b = x(:).^2 + y(:).^2;
+    params = A \ b;
+    cx = params(1);
+    cy = params(2);
+    r2 = params(3) + cx^2 + cy^2;
+    if r2 <= 0 || ~isfinite(r2)
+        r = nan;
+    else
+        r = sqrt(r2);
+    end
+end
+
+function tf = local_circle_fit_is_reasonable(cx, cy, r, fallbackCenter, fallbackRadius)
+    tf = isfinite(cx) && isfinite(cy) && isfinite(r) && r > 0;
+    if ~tf
+        return;
+    end
+    centerShift = hypot(cx - fallbackCenter(1), cy - fallbackCenter(2));
+    tf = centerShift <= 2 * max(fallbackRadius, eps) && r >= 0.1 * max(fallbackRadius, eps) && r <= 5 * max(fallbackRadius, eps);
+end
+
+function v = local_finite_min(x)
+    x = x(isfinite(x));
+    if isempty(x), v = nan; else, v = min(x); end
+end
+
+function v = local_finite_max(x)
+    x = x(isfinite(x));
+    if isempty(x), v = nan; else, v = max(x); end
+end
